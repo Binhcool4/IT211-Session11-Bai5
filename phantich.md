@@ -1,138 +1,341 @@
+# Báo cáo: Chiến lược kiểm thử cho hệ thống Booking Microservice
+
 # Phần 1: Phân tích logic
 
-## Thách thức kiểm thử trong kiến trúc Microservices
+## 1. Thách thức kiểm thử trong kiến trúc microservices
 
-So với kiến trúc Monolithic, kiến trúc Microservices có độ phức tạp cao hơn vì hệ thống được chia thành nhiều dịch vụ độc lập thay vì tập trung trong một ứng dụng duy nhất. Mỗi service có database riêng, được triển khai độc lập và giao tiếp với nhau thông qua API. Điều này làm phát sinh nhiều vấn đề trong quá trình kiểm thử.
+Kiến trúc microservices phức tạp hơn monolithic vì hệ thống được chia thành nhiều service độc lập như:
 
-Một thách thức lớn là việc kiểm tra giao tiếp giữa các service. Trong kiến trúc Monolithic, các module thường gọi trực tiếp các phương thức bên trong cùng hệ thống. Trong khi đó ở Microservices, việc giao tiếp phụ thuộc vào API hoặc network. Vì vậy có thể xuất hiện các lỗi như sai định dạng dữ liệu, lỗi kết nối hoặc thay đổi API giữa các service.
+```text
+UserService
+BookingService
+NotificationService
+```
 
-Ngoài ra, dữ liệu giữa các service cũng có thể không đồng bộ. Ví dụ khi BookingService tạo lịch hẹn thành công nhưng NotificationService gặp lỗi và không gửi được email xác nhận, hệ thống sẽ rơi vào trạng thái không nhất quán.
+Mỗi service có:
 
-Một khó khăn khác là môi trường kiểm thử trở nên phức tạp hơn. Thay vì chỉ chạy một ứng dụng duy nhất, cần khởi động nhiều service cùng lúc và quản lý nhiều database khác nhau.
+```text
+Database riêng
+API riêng
+Logic riêng
+Cách deploy riêng
+```
 
-Chỉ sử dụng Unit Test là chưa đủ trong trường hợp này. Unit Test chỉ kiểm tra logic bên trong từng service một cách cô lập bằng Mock. Nó không thể kiểm tra việc giao tiếp thực tế giữa các service hoặc phát hiện các lỗi tích hợp. Một service có thể pass toàn bộ Unit Test nhưng vẫn gặp lỗi khi chạy chung với các service khác.
+Vì vậy, lỗi không chỉ nằm trong từng service mà còn có thể xuất hiện khi các service giao tiếp với nhau.
+
+Ví dụ:
+
+```text
+BookingService gọi UserService để kiểm tra user.
+BookingService tạo lịch hẹn.
+BookingService gọi NotificationService để gửi email/SMS.
+```
+
+Nếu một API thay đổi response hoặc lỗi mạng xảy ra, BookingService có thể bị lỗi dù Unit Test vẫn passed.
 
 ---
 
-# Phần 2: Thiết kế chiến lược kiểm thử cho hệ thống Booking Microservices
+## 2. Vì sao chỉ Unit Test là chưa đủ?
 
-## Mô hình kiểm thử
+Unit Test chỉ kiểm tra từng hàm hoặc từng class riêng lẻ, thường dùng mock để giả lập dependency.
 
-Đối với hệ thống Booking microservices, mô hình Test Pyramid là lựa chọn phù hợp vì giúp cân bằng giữa tốc độ và độ tin cậy của quá trình kiểm thử.
+Ví dụ:
+
+```text
+Mock UserService trả về user hợp lệ.
+Mock NotificationService gửi thông báo thành công.
+```
+
+Nhưng thực tế có thể xảy ra:
+
+```text
+UserService đổi format JSON.
+NotificationService timeout.
+Database thật hoạt động khác database giả lập.
+API trả về lỗi 500.
+Network chậm hoặc mất kết nối.
+```
+
+Những lỗi này Unit Test không phát hiện được.
+
+Vì vậy, ngoài Unit Test cần có:
+
+```text
+Integration Test
+Contract Test
+End-to-End Test
+Performance Test cơ bản
+CI/CD Quality Gate
+```
+
+---
+
+# Phần 2: Chiến lược kiểm thử toàn diện
+
+## 1. Mô hình kiểm thử: Test Pyramid
+
+Đề xuất áp dụng mô hình Test Pyramid:
+
+```text
+            End-to-End Test
+          Integration Test
+        Unit Test
+```
 
 Tỷ lệ đề xuất:
 
-- Unit Test: khoảng 70%
-- Integration Test: khoảng 20%
-- End-to-End Test: khoảng 10%
-
-Unit Test chiếm phần lớn vì chạy nhanh, dễ bảo trì và giúp kiểm tra logic nghiệp vụ riêng của từng service.
-
-Integration Test chiếm tỷ lệ trung bình để kiểm tra sự tương tác giữa các thành phần như database, API hoặc nhiều service khác nhau.
-
-End-to-End Test chiếm tỷ lệ thấp vì thời gian chạy lâu và chi phí bảo trì cao.
+| Loại test | Tỷ lệ | Mục tiêu |
+|---|---:|---|
+| Unit Test | 60% | Kiểm tra logic nội bộ từng service |
+| Integration Test | 30% | Kiểm tra service với DB, API, message, container |
+| End-to-End Test | 10% | Kiểm tra luồng nghiệp vụ hoàn chỉnh |
 
 ---
 
-## Công cụ và kỹ thuật
+## 2. Unit Test
 
-Ở tầng Unit Test có thể sử dụng:
+Áp dụng cho từng service:
 
-- JUnit 5
-- Mockito
-- AssertJ
+```text
+UserService
+BookingService
+NotificationService
+```
 
-JUnit 5 dùng để xây dựng test, Mockito dùng để tạo Mock object và AssertJ giúp việc viết assertion dễ đọc hơn.
+Mục tiêu:
 
-Ở tầng Integration Test có thể sử dụng:
+```text
+Test logic nghiệp vụ
+Test happy path
+Test unhappy path
+Test validation
+Test exception
+```
 
-- Spring `@DataJpaTest`
-- Spring `@WebMvcTest`
-- Testcontainers
+Công cụ đề xuất:
 
-Testcontainers cho phép tạo database thật bằng Docker để kiểm tra môi trường gần giống thực tế.
+```text
+JUnit 5
+Mockito
+AssertJ
+JaCoCo
+```
 
-Ở tầng End-to-End Test có thể sử dụng:
+Ví dụ cần test trong BookingService:
 
-- REST Assured
-- Selenium
-- Cypress
-
-REST Assured phù hợp kiểm thử API, trong khi Selenium hoặc Cypress phù hợp với giao diện người dùng.
+```text
+Tạo booking thành công
+Không cho booking khi user không tồn tại
+Không cho booking trùng lịch
+Không cho booking với thời gian quá khứ
+Không cho booking khi service trả lỗi
+```
 
 ---
 
-## Chiến lược cho Testing Coverage
+## 3. Integration Test
 
-Mỗi microservice sẽ tích hợp JaCoCo để đo độ phủ mã nguồn.
+Integration Test dùng để kiểm tra service với thành phần thật hơn, ví dụ database hoặc REST API.
 
-Thiết lập Quality Gate:
+Công cụ đề xuất:
+
+```text
+Spring Boot Test
+@DataJpaTest
+@WebMvcTest
+Testcontainers
+REST Assured
+MockWebServer
+```
+
+Ví dụ:
+
+```text
+BookingService kết nối PostgreSQL thật bằng Testcontainers
+Kiểm tra repository lưu booking đúng
+Kiểm tra API POST /bookings trả về 201 Created
+Kiểm tra API GET /bookings/{id} trả đúng dữ liệu
+```
+
+Với database, nên dùng:
+
+```text
+Testcontainers + PostgreSQL/MySQL
+```
+
+thay vì chỉ dùng H2, vì H2 có thể khác DB thật.
+
+---
+
+## 4. End-to-End Test
+
+End-to-End Test kiểm tra toàn bộ luồng hệ thống.
+
+Ví dụ luồng đặt lịch:
+
+```text
+User đăng nhập
+User chọn lịch trống
+BookingService tạo booking
+NotificationService gửi thông báo
+User nhận kết quả đặt lịch thành công
+```
+
+Công cụ đề xuất:
+
+```text
+REST Assured
+Postman/Newman
+Cypress
+Selenium
+Docker Compose
+```
+
+Không nên viết quá nhiều E2E Test vì:
+
+```text
+Chạy chậm
+Dễ flaky
+Khó debug
+Tốn tài nguyên CI/CD
+```
+
+Chỉ nên chọn các luồng quan trọng nhất.
+
+---
+
+## 5. Chiến lược Testing Coverage với JaCoCo
+
+Mỗi microservice cần có ngưỡng coverage riêng.
+
+Mục tiêu đề xuất:
 
 ```text
 Line Coverage >= 80%
 Branch Coverage >= 70%
 ```
 
-Việc đặt ngưỡng tối thiểu giúp đảm bảo các service đều được kiểm tra ở mức chấp nhận được và tránh tình trạng developer bỏ qua việc viết test.
+Áp dụng cho:
 
-Branch Coverage được áp dụng vì nó phản ánh tốt hơn chất lượng kiểm thử logic nghiệp vụ.
+```text
+UserService
+BookingService
+NotificationService
+```
 
-Nếu coverage thấp hơn mức yêu cầu thì pipeline CI/CD sẽ tự động thất bại.
+Ý nghĩa:
+
+```text
+Line Coverage kiểm tra số dòng code đã được chạy.
+Branch Coverage kiểm tra các nhánh if/else, switch, exception.
+```
+
+Branch Coverage quan trọng vì microservices có nhiều logic rẽ nhánh như:
+
+```text
+User tồn tại / không tồn tại
+Booking hợp lệ / không hợp lệ
+Notification gửi thành công / thất bại
+```
+
+Nếu coverage thấp hơn ngưỡng, pipeline CI/CD phải fail.
 
 ---
 
-## Giải pháp kiểm thử giao tiếp giữa các services
+## 6. Kiểm thử giao tiếp giữa các services
 
-Đối với việc kiểm thử tương tác giữa các service, có thể kết hợp nhiều phương pháp.
+Trong microservices, lỗi thường xảy ra ở phần giao tiếp API.
 
-Integration Test kết hợp Testcontainers giúp chạy nhiều service và database trong môi trường gần giống thực tế.
+Cần kiểm thử:
 
-Consumer-driven Contract Testing sử dụng Pact giúp đảm bảo dữ liệu trao đổi giữa các service không bị thay đổi ngoài ý muốn.
+```text
+Request body
+Response body
+Status code
+Timeout
+Error response
+Backward compatibility
+```
+
+Đề xuất dùng Consumer-driven Contract Testing với Pact.
 
 Ví dụ:
 
-- BookingService gửi dữ liệu cho NotificationService
-- Nếu NotificationService thay đổi cấu trúc API
-- Pact sẽ phát hiện ngay lỗi không tương thích
+```text
+BookingService là consumer của UserService.
+UserService là provider.
+BookingService định nghĩa contract mong muốn.
+UserService phải đảm bảo response không phá contract đó.
+```
 
-Ngoài ra cần có End-to-End Test để kiểm tra toàn bộ luồng xử lý:
+Lợi ích:
 
 ```text
-User tạo tài khoản
-→ Đặt lịch
-→ Lưu dữ liệu
-→ Gửi thông báo
-→ Hoàn tất
+Phát hiện sớm API breaking change
+Không cần chạy toàn bộ hệ thống
+Phù hợp với microservices
+Giảm phụ thuộc vào E2E Test
+```
+
+Ngoài Pact, có thể dùng:
+
+```text
+WireMock
+MockWebServer
+Spring Cloud Contract
 ```
 
 ---
 
-## Tích hợp vào CI/CD
+## 7. Tích hợp vào CI/CD
 
-Quy trình CI/CD nên tự động hóa toàn bộ quá trình kiểm thử để giảm thời gian kiểm tra thủ công.
-
-Quy trình đề xuất:
+Pipeline đề xuất:
 
 ```text
-Developer push code
-        ↓
-Build project
-        ↓
-Chạy Unit Test
-        ↓
-Kiểm tra JaCoCo Coverage
-        ↓
-Chạy Integration Test
-        ↓
-Chạy Contract Test
-        ↓
-Chạy End-to-End Test
-        ↓
-Deploy staging
-        ↓
-Deploy production
+1. Developer push code
+2. Run static analysis
+3. Run Unit Test
+4. Run JaCoCo coverage check
+5. Run Integration Test
+6. Run Contract Test
+7. Build Docker image
+8. Deploy lên test environment
+9. Run End-to-End Test
+10. Deploy staging/production
 ```
 
-Trong quy trình này, Unit Test sẽ chạy đầu tiên vì tốc độ nhanh và phản hồi sớm. Integration Test và Contract Test sẽ chạy tiếp theo để phát hiện lỗi giữa các service. End-to-End Test chạy cuối cùng để xác nhận toàn bộ hệ thống hoạt động ổn định.
+Thứ tự nên tối ưu tốc độ:
 
-Chiến lược này giúp giảm lỗi phát sinh, tăng mức độ tự động hóa và hỗ trợ hệ thống mở rộng dễ dàng trong tương lai.
+```text
+Unit Test chạy trước vì nhanh
+Integration Test chạy sau
+E2E Test chạy cuối vì chậm nhất
+```
+
+Nếu fail ở bước nào thì dừng pipeline ngay.
+
+---
+
+## 8. Tổng kết chiến lược
+
+Chiến lược kiểm thử cho Booking microservice cần kết hợp nhiều tầng:
+
+```text
+Unit Test: kiểm tra logic nhỏ
+Integration Test: kiểm tra service với DB/API thật hơn
+Contract Test: kiểm tra giao tiếp giữa services
+End-to-End Test: kiểm tra luồng nghiệp vụ hoàn chỉnh
+JaCoCo: kiểm soát coverage
+CI/CD: tự động hóa chất lượng
+```
+
+Mục tiêu cuối cùng:
+
+```text
+Phát hiện lỗi sớm
+Giảm kiểm thử thủ công
+Đảm bảo service thay đổi không phá service khác
+Duy trì tốc độ phát triển nhanh
+Đạt coverage 80% line và 70% branch
+Giảm lỗi nghiêm trọng trên staging
+```
